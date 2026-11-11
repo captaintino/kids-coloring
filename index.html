@@ -38,9 +38,14 @@
         <button class="btn btn-purple" data-action="mode" data-mode="magic">
           <span class="btn-icon">✨</span> Magic Reveal
         </button>
-        <button class="btn btn-orange btn-small hidden" id="install-btn" data-action="install">
-          <span class="btn-icon">📲</span> Install
-        </button>
+        <div class="btn-row">
+          <button class="btn btn-orange btn-small" data-action="themes">
+            <span class="btn-icon">🌍</span> Themes
+          </button>
+          <button class="btn btn-green btn-small hidden" id="install-btn" data-action="install">
+            <span class="btn-icon">📲</span> Install
+          </button>
+        </div>
       </div>
       <div class="best-line" id="title-best"></div>
     </div>
@@ -60,6 +65,17 @@
       <div class="gallery-scroll">
         <div class="pic-grid" id="pic-grid"></div>
       </div>
+    </div>
+  </section>
+
+  <!-- Theme (world) picker -->
+  <section id="screen-themes" class="screen">
+    <div class="panel themes-panel">
+      <h2 class="heading">Pick a World</h2>
+      <div class="theme-grid" id="theme-grid"></div>
+      <button class="btn btn-purple btn-small" data-action="home">
+        <span class="btn-icon">🏠</span> Back
+      </button>
     </div>
   </section>
 
@@ -124,6 +140,22 @@
         <button class="btn btn-green" data-action="next"><span class="btn-icon">➡️</span> Next</button>
         <button class="btn btn-blue btn-small" data-action="save-img"><span class="btn-icon">📷</span> Save</button>
         <button class="btn btn-purple btn-small" data-action="gallery"><span class="btn-icon">🖼️</span> Pictures</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- How to install on iPhone / iPad (Safari has no install prompt) -->
+  <section id="screen-install" class="screen dim">
+    <div class="panel card install-card">
+      <h2 class="heading">Add to Home Screen</h2>
+      <ol class="steps">
+        <li><span class="step-n">1</span><span>Tap the <b>Share</b> button <svg class="share-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9H6.5A1.5 1.5 0 0 0 5 10.5v9A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 17.5 9H16" fill="none" stroke="#2f8cff" stroke-width="2" stroke-linecap="round"/><path d="M12 14V3M8.5 6.5 12 3l3.5 3.5" fill="none" stroke="#2f8cff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></li>
+        <li><span class="step-n">2</span><span>Tap <b>Add to Home Screen</b> <span class="plus-ico">+</span></span></li>
+        <li><span class="step-n">3</span><span>Tap <b>Add</b>. Then color from your home screen!</span></li>
+      </ol>
+      <p class="card-text install-where" id="install-where">The Share button is at the bottom of the screen.</p>
+      <div class="btn-col">
+        <button class="btn btn-green btn-small" data-action="close"><span class="btn-icon">👍</span> Got it</button>
       </div>
     </div>
   </section>

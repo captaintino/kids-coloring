@@ -1,5 +1,6 @@
 import * as sfx from './audio.js';
 import { PICTURES, PALETTE, MAGIC, CATEGORIES } from './pictures.js';
+import { SCENES, paintScene, createAnimator } from './scenes.js';
 import {
   SIZE, paint, pictureMarkup, strokePath, svgOpen, installDefs, analyze, svgToCanvas, canvasToBlob,
 } from './art.js';
@@ -11,7 +12,7 @@ const SAVE_KEY = 'color-splash-party.v1';
 const save = loadSave();
 
 function loadSave() {
-  const def = { muted: false, cat: 'all', art: {}, num: {}, done: { free: {}, number: {}, magic: {} } };
+  const def = { muted: false, scene: 'party', cat: 'all', art: {}, num: {}, done: { free: {}, number: {}, magic: {} } };
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
     if (s && typeof s === 'object') return { ...def, ...s, done: { ...def.done, ...(s.done || {}) } };
@@ -42,11 +43,18 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const HEX = {};
 PALETTE.forEach((p) => { HEX[p.key] = p.hex; });
 const LIGHT = new Set(['white', 'yellow', 'tan', 'sky', 'gray']);
-
-function hexToRgb(hex) {
-  const v = parseInt(hex.slice(1), 16);
-  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+const IS_IOS = /iP(ad|hone|od)/.test(navigator.platform) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_IPAD = /iPad/.test(navigator.platform) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// Opened from the home screen? (navigator.standalone is the iOS flag)
+function isInstalled() {
+  try {
+    return navigator.standalone === true ||
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.matchMedia('(display-mode: fullscreen)').matches;
+  } catch (err) { return false; }
 }
+
 function vibrate(ms) {
   try { navigator.vibrate && navigator.vibrate(ms); } catch (err) { /* ignore */ }
 }
@@ -67,7 +75,7 @@ const bg = $('#bg');
 const bgx = bg.getContext('2d');
 const fx = $('#fx');
 const fxx = fx.getContext('2d');
-let W = 0, H = 0, unit = 1;
+let W = 0, H = 0, unit = 1, DPR = 1;
 let fxDirty = true;
 
 function sizeCanvas(cv, c, dpr) {
@@ -79,26 +87,74 @@ function sizeCanvas(cv, c, dpr) {
 function resize() {
   W = window.innerWidth;
   H = window.innerHeight;
-  // The background is soft and blurry anyway, so 1x resolution is plenty.
-  // The effects layer gets a pixel budget so big retina tablets stay smooth.
-  sizeCanvas(bg, bgx, 1);
-  const fxDpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(2400000 / (W * H))));
-  sizeCanvas(fx, fxx, fxDpr);
+  // pixel budget so big retina tablets stay smooth
+  DPR = Math.max(1, Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(2400000 / (W * H))));
+  sizeCanvas(bg, bgx, DPR);
+  sizeCanvas(fx, fxx, DPR);
   fxDirty = true;
   unit = clamp(Math.min(W, H) / 400, 0.8, 1.8);
+  rebuildBackground(false);
+  if (ed.pic) layoutDock();
   fitPaper();
 }
 
-const THEMES = {
-  title: ['#ff6fb5', '#c27bff', '#6fc8ff'],
-  fill: ['#ff6fa8', '#ff9f7a', '#ffd86b'],
-  paint: ['#36b7ff', '#6ad5ff', '#b9f3ff'],
-  number: ['#2bd4b4', '#64e6a8', '#c9ff8a'],
-  magic: ['#4b3cff', '#8a4dff', '#ff6fd8'],
-};
-let themeCur = THEMES.title.map(hexToRgb);
-let themeTarget = themeCur.map((c) => c.slice());
-function setTheme(name) { themeTarget = (THEMES[name] || THEMES.title).map(hexToRgb); }
+// ---------------------------------------------------------------------------
+// Background world: the scene picture is painted once into a cached canvas and
+// copied to the screen each frame; only small moving bits are drawn live.
+// ---------------------------------------------------------------------------
+if (!SCENES.some((sc) => sc.id === save.scene)) save.scene = 'party';
+const MODE_PALETTE = { title: 0, fill: 1, paint: 2, number: 3, magic: 4 };
+let bgCur = document.createElement('canvas');
+let bgPrev = document.createElement('canvas');
+let bgFade = 1;
+let palette = 0;
+let animator = createAnimator(save.scene);
+
+function rebuildBackground(fade) {
+  if (fade && bgCur.width === bg.width && bgCur.height === bg.height) {
+    const t = bgPrev;
+    bgPrev = bgCur;
+    bgCur = t;
+    bgFade = 0;
+  } else {
+    bgFade = 1;
+  }
+  bgCur.width = bg.width;
+  bgCur.height = bg.height;
+  const c = bgCur.getContext('2d');
+  c.setTransform(DPR, 0, 0, DPR, 0, 0);
+  paintScene(c, W, H, save.scene, palette);
+}
+
+// Each screen has its own colors in the Paint Party world.
+function setTheme(name) {
+  const i = MODE_PALETTE[name] || 0;
+  if (palette === i) return;
+  palette = i;
+  if (save.scene === 'party') rebuildBackground(true);
+}
+
+function setScene(id) {
+  if (save.scene === id) return;
+  save.scene = id;
+  persist();
+  animator = createAnimator(id);
+  rebuildBackground(true);
+}
+
+function drawBackground(t, dt) {
+  bgx.setTransform(1, 0, 0, 1, 0, 0);
+  if (bgFade < 1) {
+    bgFade = Math.min(1, bgFade + dt * 1.6);
+    bgx.drawImage(bgPrev, 0, 0);
+    bgx.globalAlpha = bgFade;
+  }
+  bgx.drawImage(bgCur, 0, 0);
+  bgx.globalAlpha = 1;
+  bgx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  animator.draw(bgx, W, H, t, dt);
+  bgx.globalAlpha = 1;
+}
 
 const sparkleImg = (() => {
   const s = 64;
@@ -121,80 +177,6 @@ const sparkleImg = (() => {
   c.fill();
   return cv;
 })();
-
-// Floating paint blobs in the background
-const BLOB_COLORS = ['#ff4d5e', '#ff9a2e', '#ffd93b', '#5cd65c', '#3d9bff', '#9d5cff', '#ff7ac6'];
-const blobs = Array.from({ length: 11 }, () => ({
-  fx: Math.random(), fy: Math.random(), r: rand(26, 80), speed: rand(0.006, 0.02),
-  a: rand(0.12, 0.24), drift: rand(0, Math.PI * 2), color: pickOne(BLOB_COLORS),
-}));
-// Each blob color is painted once into a small sprite (gradients every frame are slow on old iPads)
-const blobSprites = {};
-function blobSprite(color) {
-  if (blobSprites[color]) return blobSprites[color];
-  const s = 128;
-  const r = s / 2;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = s;
-  const c = cv.getContext('2d');
-  const rg = c.createRadialGradient(r * 0.7, r * 0.7, 0, r, r, r);
-  rg.addColorStop(0, '#ffffff');
-  rg.addColorStop(0.35, color);
-  rg.addColorStop(1, 'rgba(255,255,255,0)');
-  c.fillStyle = rg;
-  c.fillRect(0, 0, s, s);
-  blobSprites[color] = cv;
-  return cv;
-}
-
-// Sky gradient, drawn into a 1-pixel-wide strip only while the colors change
-const sky = document.createElement('canvas');
-sky.width = 1;
-sky.height = 256;
-const skyx = sky.getContext('2d');
-let skyDirty = true;
-
-const twinkles = Array.from({ length: 24 }, () => ({
-  fx: Math.random(), fy: Math.random(), s: rand(6, 16), phase: rand(0, Math.PI * 2), speed: rand(1.2, 3),
-}));
-
-function drawBackground(t, dt) {
-  let moving = false;
-  for (let i = 0; i < 3; i++) {
-    for (let j = 0; j < 3; j++) {
-      const d = themeTarget[i][j] - themeCur[i][j];
-      if (Math.abs(d) > 0.5) { themeCur[i][j] += d * 0.05; moving = true; } else themeCur[i][j] = themeTarget[i][j];
-    }
-  }
-  if (moving || skyDirty) {
-    skyDirty = moving;
-    const rgb = (c) => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
-    const g = skyx.createLinearGradient(0, 0, 0, 256);
-    g.addColorStop(0, rgb(themeCur[0]));
-    g.addColorStop(0.55, rgb(themeCur[1]));
-    g.addColorStop(1, rgb(themeCur[2]));
-    skyx.fillStyle = g;
-    skyx.fillRect(0, 0, 1, 256);
-  }
-  bgx.drawImage(sky, 0, 0, W, H);
-
-  for (const b of blobs) {
-    b.fy -= b.speed * dt;
-    if (b.fy < -0.2) { b.fy = 1.2; b.fx = Math.random(); b.color = pickOne(BLOB_COLORS); }
-    const x = b.fx * W + Math.sin(t * 0.3 + b.drift) * 20;
-    const y = b.fy * H;
-    const r = b.r * unit;
-    bgx.globalAlpha = b.a;
-    bgx.drawImage(blobSprite(b.color), x - r, y - r, r * 2, r * 2);
-  }
-  for (const s of twinkles) {
-    const a = 0.5 + 0.5 * Math.sin(t * s.speed + s.phase);
-    bgx.globalAlpha = a * 0.8;
-    const size = s.s * (0.6 + a * 0.6);
-    bgx.drawImage(sparkleImg, s.fx * W - size / 2, s.fy * H - size / 2, size, size);
-  }
-  bgx.globalAlpha = 1;
-}
 
 // ---------------------------------------------------------------------------
 // Particles
@@ -358,7 +340,36 @@ function showScreen(id) {
   if (id === 'screen-photo') photoReturn = currentScreen;
   currentScreen = id;
   $$('.screen').forEach((s) => s.classList.toggle('active', s.id === id));
+  if (id !== 'screen-title') armBack();
 }
+
+// Android's back button (and the iOS back swipe in Safari) would leave the app.
+// Keep one extra history entry while inside the app and turn "back" into a step back.
+let backArmed = false;
+function armBack() {
+  if (backArmed) return;
+  try { history.pushState({ coloring: 1 }, ''); backArmed = true; } catch (err) { /* ignore */ }
+}
+function stepBack() {
+  switch (currentScreen) {
+    case 'screen-title': return false;
+    case 'screen-photo': showScreen(photoReturn); return true;
+    case 'screen-confirm': showScreen(null); return true;
+    case 'screen-install': showScreen('screen-title'); return true;
+    case 'screen-gallery': case 'screen-themes': goHome(); return true;
+    default: // the coloring page, or the "You did it!" card
+      ed.pointer = null;
+      finishAllAnims();
+      persistNow();
+      openGallery();
+      return true;
+  }
+}
+window.addEventListener('popstate', () => {
+  backArmed = false;
+  if (stepBack()) sfx.click();
+  if (currentScreen !== 'screen-title') armBack();
+});
 function showEditor(on) {
   $('#editor').classList.toggle('active', on);
 }
@@ -402,18 +413,21 @@ function thumbMarkup(pic, mode, prefix) {
 }
 
 function openGallery(mode) {
+  const fresh = !!mode;
   if (mode) ed.mode = mode;
   const info = MODE_INFO[ed.mode];
   $('#mode-chip').textContent = `${info.icon} ${info.name}`;
   $('#tabs').innerHTML = CATEGORIES.map((c) =>
     `<button class="tab${save.cat === c.key ? ' on' : ''}" data-cat="${c.key}">${c.icon} ${c.name}</button>`).join('');
-  buildGrid();
+  buildGrid(!fresh);
   setTheme(ed.mode);
   showEditor(false);
   showScreen('screen-gallery');
 }
 
-function buildGrid() {
+function buildGrid(keepPlace) {
+  const scroller = $('.gallery-scroll');
+  const top = scroller.scrollTop;
   const cat = save.cat;
   galleryList = PICTURES.filter((p) => cat === 'all' || p.cat === cat);
   const doneSet = save.done[MODE_INFO[ed.mode].done];
@@ -425,7 +439,15 @@ function buildGrid() {
       (doneSet[pic.id] ? '<span class="pic-badge">⭐</span>' : '') +
       '</button>';
   }).join('');
-  $('.gallery-scroll').scrollTop = 0;
+  if (!keepPlace) { scroller.scrollTop = 0; return; }
+  // coming back from a picture: stay where we were, and make sure that picture is in view
+  scroller.scrollTop = top;
+  const card = ed.pic && $(`.pic-card[data-pic="${ed.pic.id}"]`);
+  if (card && scroller.clientHeight) {
+    if (card.offsetTop < scroller.scrollTop || card.offsetTop + card.offsetHeight > scroller.scrollTop + scroller.clientHeight) {
+      scroller.scrollTop = Math.max(0, card.offsetTop - 16);
+    }
+  }
 }
 
 $('#tabs').addEventListener('click', (e) => {
@@ -492,6 +514,47 @@ const ed = {
   pointer: null,
 };
 
+// Pick swatch size and columns so the palette fits without squeezing the picture.
+function layoutDock() {
+  const dock = $('#dock');
+  const pal = $('#palette');
+  const tools = $('#tools');
+  const n = pal.classList.contains('hidden') ? 0 : pal.children.length;
+  const GAP = 6;
+  const setPal = (cols, sw) => {
+    pal.style.gridTemplateColumns = `repeat(${cols}, ${sw}px)`;
+    pal.style.setProperty('--sw', `${sw}px`);
+  };
+  const landscape = window.matchMedia('(min-aspect-ratio: 5/4)').matches;
+  if (!landscape) {
+    dock.style.width = '';
+    if (!n) return;
+    const cols = Math.min(n, 7);
+    setPal(cols, clamp(Math.floor((pal.clientWidth - (cols - 1) * GAP) / cols), 30, 52));
+    return;
+  }
+  // Landscape: the palette sits beside the picture. Use the biggest swatches that fit
+  // the height while keeping the dock narrow enough to leave room for the picture.
+  const toolsOn = !tools.classList.contains('hidden');
+  const toolsW = toolsOn ? tools.firstElementChild.offsetWidth + tools.lastElementChild.offsetWidth + 10 : 0;
+  const toolsH = toolsOn ? tools.offsetHeight + 10 : 0;
+  const hintH = $('#dock-hint').classList.contains('hidden') ? 0 : 80;
+  if (!n) { dock.style.width = hintH ? `${Math.min(300, Math.max(200, W * 0.3))}px` : ''; return; }
+  // (extra room so the picked swatch, which grows, isn't clipped by the dock's edge)
+  const avail = $('#stage').clientHeight - 30 - toolsH - 14;
+  const maxW = Math.max(240, W * 0.42);
+  for (let sw = 48; sw >= 30; sw -= 2) {
+    const rows = Math.max(1, Math.floor((avail + 8) / (sw + 8)));
+    const cols = Math.ceil(n / rows);
+    const width = Math.max(toolsW, cols * sw + (cols - 1) * GAP + 14) + 30;
+    if (width <= maxW || sw === 30) {
+      setPal(cols, sw);
+      dock.style.width = `${width}px`;
+      return;
+    }
+  }
+}
+
 function fitPaper() {
   const stage = $('#stage');
   if (!stage) return;
@@ -534,6 +597,7 @@ function openPicture(pic) {
   });
 
   buildDock();
+  layoutDock();
   updateUndo();
   setTheme(ed.mode);
   showScreen(null);
@@ -754,7 +818,8 @@ function animateFill(r, key, x, y, fast = false) {
   const t0 = performance.now();
   const dur = clamp(maxR * 2.4, 240, 560);
   const step = (now) => {
-    const k = Math.min(1, (now - t0) / dur);
+    // (the frame time can be a hair earlier than t0, so never go below 0)
+    const k = clamp((now - t0) / dur, 0, 1);
     c.setAttribute('r', maxR * (1 - Math.pow(1 - k, 3)));
     if (k < 1) anim.raf = requestAnimationFrame(step);
     else finishAnim(r);
@@ -867,7 +932,7 @@ function setupNumbers(pic) {
   html += '<g class="labels no-export">';
   for (const [r, reg] of info.regions) {
     if (ed.numDone.has(r)) continue;
-    const fs = clamp(reg.room * 1.15, 11, 34).toFixed(1);
+    const fs = clamp(reg.room * 1.15, 12, 34).toFixed(1);
     html += `<text class="lbl" data-r="${r}" x="${reg.x.toFixed(1)}" y="${reg.y.toFixed(1)}" font-size="${fs}">${ed.groupOf.get(r).n}</text>`;
   }
   html += '</g>';
@@ -885,7 +950,24 @@ function markGroup(g) {
   sw.querySelector('span').textContent = done ? '✓' : g.n;
 }
 
+// Kids' fingers are big and some parts are tiny: if the tap isn't on a part that wants
+// the chosen color, look for one close by (within about 14 screen pixels).
+function nearbyWanted(r, pt) {
+  const wants = (i) => ed.info.regions.has(i) && !ed.numDone.has(i) && ed.pic.shapes[i].c === ed.key;
+  if (r >= 0 && wants(r)) return r;
+  const tol = (14 * SIZE) / Math.max(1, svg.getBoundingClientRect().width);
+  let best = -1;
+  let bestD = Infinity;
+  ed.info.regions.forEach((reg, i) => {
+    if (!wants(i)) return;
+    const d = Math.hypot(reg.x - pt.x, reg.y - pt.y) - reg.room;
+    if (d < tol && d < bestD) { best = i; bestD = d; }
+  });
+  return best >= 0 ? best : r;
+}
+
 function numberTap(r, pt, e) {
+  r = nearbyWanted(r, pt);
   if (r < 0 || !ed.info.regions.has(r) || ed.numDone.has(r)) {
     if (r >= 0) sparkleFx(e.clientX, e.clientY);
     return;
@@ -1011,7 +1093,7 @@ function checkReveal(pt, e) {
   m.ms.appendChild(c);
   const t0 = performance.now();
   const step = (now) => {
-    const k = Math.min(1, (now - t0) / 800);
+    const k = clamp((now - t0) / 800, 0, 1);
     c.setAttribute('r', 600 * k * k);
     if (k < 1) requestAnimationFrame(step);
   };
@@ -1056,9 +1138,6 @@ function clearPicture() {
   sfx.whoosh();
   openPicture(ed.pic);
 }
-
-const IS_IOS = /iP(ad|hone|od)/.test(navigator.platform) ||
-  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 async function saveImage() {
   finishAllAnims();
@@ -1120,6 +1199,50 @@ function updateTitle() {
     : `${PICTURES.length} pictures to color!`;
 }
 
+function buildThemeGrid() {
+  const grid = $('#theme-grid');
+  grid.querySelectorAll('canvas').forEach((c) => { c.width = 0; c.height = 0; });
+  grid.innerHTML = '';
+  for (const sc of SCENES) {
+    const btn = document.createElement('button');
+    btn.className = 'theme-card' + (sc.id === save.scene ? ' selected' : '');
+    btn.setAttribute('aria-label', sc.name);
+    btn.setAttribute('aria-pressed', String(sc.id === save.scene));
+    btn.appendChild(document.createElement('canvas'));
+    btn.insertAdjacentHTML('beforeend', `<span class="check">✓</span><span class="theme-name">${sc.icon} ${sc.name}</span>`);
+    btn.addEventListener('click', () => {
+      sfx.unlock();
+      sfx.chime([0, 4, 7], 784, 0.05);
+      setScene(sc.id);
+      grid.querySelectorAll('.theme-card').forEach((c) => {
+        const on = c === btn;
+        c.classList.toggle('selected', on);
+        c.setAttribute('aria-pressed', String(on));
+      });
+    });
+    grid.appendChild(btn);
+  }
+  // paint the little previews once the cards have a size
+  requestAnimationFrame(() => {
+    grid.querySelectorAll('canvas').forEach((cv, i) => {
+      const r = cv.getBoundingClientRect();
+      const w = Math.max(60, r.width);
+      const h = Math.max(75, r.height);
+      const sc = Math.min(2, window.devicePixelRatio || 1);
+      // draw the scene as if on a phone-sized screen, then shrink it into the card
+      const vw = 360;
+      const vh = (360 * h) / w;
+      cv.width = Math.round(w * sc);
+      cv.height = Math.round(h * sc);
+      const c = cv.getContext('2d');
+      c.scale((w * sc) / vw, (h * sc) / vh);
+      paintScene(c, vw, vh, SCENES[i].id, 0);
+      const anim = createAnimator(SCENES[i].id);
+      for (let k = 0; k < 3; k++) anim.draw(c, vw, vh, 2 + k, k === 0 ? 0 : 1.2);
+    });
+  });
+}
+
 function updateSoundButtons() {
   $$('[data-action="sound"]').forEach((b) => { b.textContent = save.muted ? '🔇' : '🔊'; });
 }
@@ -1137,6 +1260,7 @@ document.addEventListener('click', (e) => {
   if (action !== 'sound' && action !== 'undo') sfx.click();
   switch (action) {
     case 'mode': openGallery(el.dataset.mode); break;
+    case 'themes': buildThemeGrid(); showScreen('screen-themes'); break;
     case 'home': goHome(); break;
     case 'gallery': finishAllAnims(); persistNow(); openGallery(); break;
     case 'undo': undo(); break;
@@ -1144,7 +1268,11 @@ document.addEventListener('click', (e) => {
       if (ed.mode === 'magic') { sfx.whoosh(); openPicture(ed.pic); } else showScreen('screen-confirm');
       break;
     case 'clear-yes': showScreen(null); clearPicture(); break;
-    case 'close': showScreen(currentScreen === 'screen-photo' ? photoReturn : null); break;
+    case 'close':
+      if (currentScreen === 'screen-photo') showScreen(photoReturn);
+      else if (currentScreen === 'screen-install') showScreen('screen-title');
+      else showScreen(null);
+      break;
     case 'next': showScreen(null); nextPicture(); break;
     case 'save-img': saveImage(); break;
     case 'sound':
@@ -1157,10 +1285,16 @@ document.addEventListener('click', (e) => {
     case 'install':
       if (installPrompt) {
         installPrompt.prompt();
-        installPrompt.userChoice.finally(() => {
+        installPrompt.userChoice.then(() => {
           installPrompt = null;
           $('#install-btn').classList.add('hidden');
-        });
+        }, () => {});
+      } else if (IS_IOS) {
+        // Safari can't show an install prompt, so show how to do it by hand.
+        $('#install-where').textContent = IS_IPAD
+          ? 'On iPad, the Share button is at the top, next to the address bar.'
+          : 'On iPhone, the Share button is at the bottom of the screen. Tap the bottom edge if you can\'t see it.';
+        showScreen('screen-install');
       }
       break;
   }
@@ -1186,6 +1320,9 @@ window.addEventListener('appinstalled', () => {
   installPrompt = null;
   $('#install-btn').classList.add('hidden');
 });
+// iPhone / iPad: there is no install prompt, so the button explains how. Once the app
+// is opened from the home screen it runs standalone and the button goes away.
+if (IS_IOS && !isInstalled()) $('#install-btn').classList.remove('hidden');
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -1213,4 +1350,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 // tiny hook for automated testing
-window.__coloring = { ed, save, openGallery, openPicture, PICTURES };
+window.__coloring = { ed, save, openGallery, openPicture, showScreen, PICTURES };

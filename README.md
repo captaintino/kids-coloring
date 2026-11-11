@@ -16,6 +16,10 @@ It's an installable **Progressive Web App**: once it has loaded, it works fully 
 
 Tap & Fill and Paint also have **magic paints**: rainbow, glitter, polka dots, candy stripes and stars.
 
+**Themes:** pick a world for the background: Paint Party (its colors change with each mode), Under the Sea,
+Wild West, Knights & Castles, or Outer Space. Each one has a few moving details (fish, a tumbleweed,
+waving flags, a rocket...). The worlds are shared with the Bubble Pop Party game.
+
 Other things you can do:
 - ↩️ Undo, and 🗑️ start a picture over.
 - 📷 Save your picture as a PNG (on phones this opens the share sheet, so you can save it to Photos;
@@ -36,6 +40,9 @@ Other things you can do:
 - Works back to iOS 12 / Safari 12 (e.g. the original iPad Air): touch-event fallback when Pointer Events
   are missing, no newer JS/CSS syntax (`??`, `?.`, `clamp()`, flex `gap`, `inset`, `aspect-ratio`), and on
   older iPads the 📷 button shows the picture so it can be saved with a long press.
+- Made for phones and tablets in both orientations: the palette resizes to fit the screen, Android's back
+  button steps back through the screens instead of closing the app, and in Color by Number a tap near a
+  tiny numbered part still counts.
 - Built to stay smooth on older tablets: background blobs are pre-drawn sprites, the background canvas
   runs at 1x resolution, and the effects layer has a pixel budget and sits idle when nothing is moving.
 
@@ -66,7 +73,8 @@ which service workers need.
 
 **Installing it:** open the page on your phone or tablet.
 - Android/Chrome: tap the **Install** button on the title screen, or use *Add to Home screen* in the menu.
-- iPhone/iPad Safari: tap Share, then **Add to Home Screen**.
+- iPhone/iPad: Safari has no install prompt, so the **Install** button shows step-by-step instructions
+  (Share, then **Add to Home Screen**). Once the game is opened from the home screen, the button hides itself.
 
 ### Updating
 

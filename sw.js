@@ -1,6 +1,6 @@
 // Service worker: caches the whole app so it works offline.
 // Bump VERSION whenever any file below changes so players get the update.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = `color-splash-party-${VERSION}`;
 
 const ASSETS = [
@@ -12,6 +12,7 @@ const ASSETS = [
   './js/audio.js',
   './js/pictures.js',
   './js/art.js',
+  './js/scenes.js',
   './fonts/fredoka-latin.woff2',
   './icons/icon.svg',
   './icons/icon-192.png',

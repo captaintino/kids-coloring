@@ -207,7 +207,7 @@ export function analyze(pic) {
   const regions = new Map();
   for (const [i, b] of best) {
     const room = b.d / 3 / k; // distance to nearest edge, in sheet units
-    if (room < 3.5) continue;
+    if (room < 4.5) continue;
     regions.set(i, {
       x: ((b.p % GRID) + 0.5) / k,
       y: (Math.floor(b.p / GRID) + 0.5) / k,
