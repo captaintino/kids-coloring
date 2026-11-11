@@ -128,6 +128,23 @@
     </div>
   </section>
 
+  <!-- Save on older iPads: long-press the picture -->
+  <section id="screen-photo" class="screen dim">
+    <div class="panel card">
+      <h2 class="heading">Your picture!</h2>
+      <img id="photo-img" class="photo-img" alt="Your colored picture">
+      <p class="card-text">Press and hold the picture,<br>then tap <b>Save Image</b>.</p>
+      <div class="btn-col">
+        <button class="btn btn-green btn-small" data-action="close"><span class="btn-icon">👍</span> Done</button>
+      </div>
+    </div>
+  </section>
+
   <script type="module" src="js/main.js"></script>
+  <script nomodule>
+    document.body.insertAdjacentHTML('beforeend',
+      '<p style="position:fixed;left:0;right:0;top:40%;padding:20px;text-align:center;font:600 22px sans-serif;color:#fff">' +
+      'Sorry! This browser is too old for Color Splash Party. Please update it to play.</p>');
+  </script>
 </body>
 </html>

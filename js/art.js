@@ -5,7 +5,8 @@ import { PALETTE, MAGIC, INK, star } from './pictures.js';
 export const SIZE = 400;
 export const OUTLINE = 5;
 
-const HEX = Object.fromEntries(PALETTE.map((p) => [p.key, p.hex]));
+const HEX = {};
+PALETTE.forEach((p) => { HEX[p.key] = p.hex; });
 const MAGIC_KEYS = new Set(MAGIC.map((m) => m.key));
 
 /** SVG paint value for a palette or magic key. */
@@ -225,7 +226,7 @@ export function analyze(pic) {
 // ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
-export async function svgToBlob(svgEl, px = 1200) {
+export async function svgToCanvas(svgEl, px = 1200) {
   const clone = svgEl.cloneNode(true);
   clone.querySelectorAll('.no-export').forEach((el) => el.remove());
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
@@ -233,16 +234,25 @@ export async function svgToBlob(svgEl, px = 1200) {
   clone.setAttribute('height', px);
   clone.removeAttribute('class');
   clone.removeAttribute('style');
-  clone.insertAdjacentHTML('afterbegin', `<defs>${DEFS}</defs>`);
-  const str = new XMLSerializer().serializeToString(clone);
+  // add the magic paint patterns right after the opening <svg> tag
+  const str = new XMLSerializer().serializeToString(clone)
+    .replace(/<svg[^>]*>/, (open) => `${open}<defs>${DEFS}</defs>`);
   const img = new Image();
-  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(str);
-  await img.decode();
+  // onload rather than img.decode(): older Safari rejects decode() for SVG images
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = reject;
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(str);
+  });
   const cv = document.createElement('canvas');
   cv.width = cv.height = px;
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, px, px);
   ctx.drawImage(img, 0, 0, px, px);
+  return cv;
+}
+
+export function canvasToBlob(cv) {
   return new Promise((res) => cv.toBlob(res, 'image/png'));
 }

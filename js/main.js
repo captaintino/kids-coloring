@@ -1,7 +1,7 @@
 import * as sfx from './audio.js';
 import { PICTURES, PALETTE, MAGIC, CATEGORIES } from './pictures.js';
 import {
-  SIZE, paint, pictureMarkup, strokeMarkup, strokePath, svgOpen, installDefs, analyze, svgToBlob,
+  SIZE, paint, pictureMarkup, strokePath, svgOpen, installDefs, analyze, svgToCanvas, canvasToBlob,
 } from './art.js';
 
 // ---------------------------------------------------------------------------
@@ -15,7 +15,7 @@ function loadSave() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
     if (s && typeof s === 'object') return { ...def, ...s, done: { ...def.done, ...(s.done || {}) } };
-  } catch { /* storage blocked: color without saving */ }
+  } catch (err) { /* storage blocked: color without saving */ }
   return def;
 }
 let persistTimer = 0;
@@ -25,7 +25,7 @@ function persist() {
 }
 function persistNow() {
   clearTimeout(persistTimer);
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* full or blocked */ }
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (err) { /* full or blocked */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +39,8 @@ const randInt = (a, b) => Math.floor(rand(a, b + 1));
 const pickOne = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
-const HEX = Object.fromEntries(PALETTE.map((p) => [p.key, p.hex]));
+const HEX = {};
+PALETTE.forEach((p) => { HEX[p.key] = p.hex; });
 const LIGHT = new Set(['white', 'yellow', 'tan', 'sky', 'gray']);
 
 function hexToRgb(hex) {
@@ -47,7 +48,7 @@ function hexToRgb(hex) {
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 }
 function vibrate(ms) {
-  try { navigator.vibrate && navigator.vibrate(ms); } catch { /* ignore */ }
+  try { navigator.vibrate && navigator.vibrate(ms); } catch (err) { /* ignore */ }
 }
 // A CSS color for sparkles / splashes of a palette or magic key
 function fxColor(key) {
@@ -66,17 +67,24 @@ const bg = $('#bg');
 const bgx = bg.getContext('2d');
 const fx = $('#fx');
 const fxx = fx.getContext('2d');
-let W = 0, H = 0, DPR = 1, unit = 1;
+let W = 0, H = 0, unit = 1;
+let fxDirty = true;
+
+function sizeCanvas(cv, c, dpr) {
+  cv.width = Math.round(W * dpr);
+  cv.height = Math.round(H * dpr);
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
 
 function resize() {
-  DPR = Math.min(window.devicePixelRatio || 1, 2);
   W = window.innerWidth;
   H = window.innerHeight;
-  for (const [cv, c] of [[bg, bgx], [fx, fxx]]) {
-    cv.width = Math.round(W * DPR);
-    cv.height = Math.round(H * DPR);
-    c.setTransform(DPR, 0, 0, DPR, 0, 0);
-  }
+  // The background is soft and blurry anyway, so 1x resolution is plenty.
+  // The effects layer gets a pixel budget so big retina tablets stay smooth.
+  sizeCanvas(bg, bgx, 1);
+  const fxDpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(2400000 / (W * H))));
+  sizeCanvas(fx, fxx, fxDpr);
+  fxDirty = true;
   unit = clamp(Math.min(W, H) / 400, 0.8, 1.8);
   fitPaper();
 }
@@ -120,21 +128,55 @@ const blobs = Array.from({ length: 11 }, () => ({
   fx: Math.random(), fy: Math.random(), r: rand(26, 80), speed: rand(0.006, 0.02),
   a: rand(0.12, 0.24), drift: rand(0, Math.PI * 2), color: pickOne(BLOB_COLORS),
 }));
+// Each blob color is painted once into a small sprite (gradients every frame are slow on old iPads)
+const blobSprites = {};
+function blobSprite(color) {
+  if (blobSprites[color]) return blobSprites[color];
+  const s = 128;
+  const r = s / 2;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = s;
+  const c = cv.getContext('2d');
+  const rg = c.createRadialGradient(r * 0.7, r * 0.7, 0, r, r, r);
+  rg.addColorStop(0, '#ffffff');
+  rg.addColorStop(0.35, color);
+  rg.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = rg;
+  c.fillRect(0, 0, s, s);
+  blobSprites[color] = cv;
+  return cv;
+}
+
+// Sky gradient, drawn into a 1-pixel-wide strip only while the colors change
+const sky = document.createElement('canvas');
+sky.width = 1;
+sky.height = 256;
+const skyx = sky.getContext('2d');
+let skyDirty = true;
+
 const twinkles = Array.from({ length: 24 }, () => ({
   fx: Math.random(), fy: Math.random(), s: rand(6, 16), phase: rand(0, Math.PI * 2), speed: rand(1.2, 3),
 }));
 
 function drawBackground(t, dt) {
+  let moving = false;
   for (let i = 0; i < 3; i++) {
-    for (let j = 0; j < 3; j++) themeCur[i][j] = lerp(themeCur[i][j], themeTarget[i][j], 0.04);
+    for (let j = 0; j < 3; j++) {
+      const d = themeTarget[i][j] - themeCur[i][j];
+      if (Math.abs(d) > 0.5) { themeCur[i][j] += d * 0.05; moving = true; } else themeCur[i][j] = themeTarget[i][j];
+    }
   }
-  const rgb = (c) => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
-  const g = bgx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, rgb(themeCur[0]));
-  g.addColorStop(0.55, rgb(themeCur[1]));
-  g.addColorStop(1, rgb(themeCur[2]));
-  bgx.fillStyle = g;
-  bgx.fillRect(0, 0, W, H);
+  if (moving || skyDirty) {
+    skyDirty = moving;
+    const rgb = (c) => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+    const g = skyx.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0, rgb(themeCur[0]));
+    g.addColorStop(0.55, rgb(themeCur[1]));
+    g.addColorStop(1, rgb(themeCur[2]));
+    skyx.fillStyle = g;
+    skyx.fillRect(0, 0, 1, 256);
+  }
+  bgx.drawImage(sky, 0, 0, W, H);
 
   for (const b of blobs) {
     b.fy -= b.speed * dt;
@@ -143,14 +185,7 @@ function drawBackground(t, dt) {
     const y = b.fy * H;
     const r = b.r * unit;
     bgx.globalAlpha = b.a;
-    const rg = bgx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
-    rg.addColorStop(0, '#ffffff');
-    rg.addColorStop(0.35, b.color);
-    rg.addColorStop(1, 'rgba(255,255,255,0)');
-    bgx.fillStyle = rg;
-    bgx.beginPath();
-    bgx.arc(x, y, r, 0, Math.PI * 2);
-    bgx.fill();
+    bgx.drawImage(blobSprite(b.color), x - r, y - r, r * 2, r * 2);
   }
   for (const s of twinkles) {
     const a = 0.5 + 0.5 * Math.sin(t * s.speed + s.phase);
@@ -226,6 +261,9 @@ function updateParticles(dt) {
 }
 
 function drawParticles() {
+  // nothing to draw: leave the cleared layer alone instead of clearing it every frame
+  if (!particles.length && !fxDirty) return;
+  fxDirty = particles.length > 0;
   fxx.clearRect(0, 0, W, H);
   for (const p of particles) {
     const k = p.life / p.max;
@@ -314,7 +352,11 @@ function frame(now) {
 // ---------------------------------------------------------------------------
 // Screens
 // ---------------------------------------------------------------------------
+let currentScreen = 'screen-title';
+let photoReturn = null;
 function showScreen(id) {
+  if (id === 'screen-photo') photoReturn = currentScreen;
+  currentScreen = id;
   $$('.screen').forEach((s) => s.classList.toggle('active', s.id === id));
 }
 function showEditor(on) {
@@ -356,7 +398,7 @@ function thumbMarkup(pic, mode, prefix) {
     return pictureMarkup(pic, { prefix, fill: (i) => (save.done.magic[pic.id] ? pic.shapes[i].c : null) });
   }
   const art = save.art[pic.id];
-  return pictureMarkup(pic, { prefix, fill: (i) => art?.f[i] || null, strokes: art?.s || [] });
+  return pictureMarkup(pic, { prefix, fill: (i) => (art && art.f[i]) || null, strokes: art ? art.s : [] });
 }
 
 function openGallery(mode) {
@@ -378,7 +420,7 @@ function buildGrid() {
   $('#pic-grid').innerHTML = galleryList.map((pic, n) => {
     const veil = ed.mode === 'magic' && !doneSet[pic.id] ? '<span class="sparkle-veil">✨</span>' : '';
     return `<button class="pic-card" data-pic="${pic.id}" style="animation-delay:${Math.min(n, 16) * 25}ms">` +
-      `${svgOpen()}${thumbMarkup(pic, ed.mode, `t${n}-`)}</svg>${veil}` +
+      `<span class="thumb">${svgOpen()}${thumbMarkup(pic, ed.mode, `t${n}-`)}</svg>${veil}</span>` +
       `<span class="pic-name">${pic.name}</span>` +
       (doneSet[pic.id] ? '<span class="pic-badge">⭐</span>' : '') +
       '</button>';
@@ -408,7 +450,20 @@ $('#pic-grid').addEventListener('click', (e) => {
 // ---------------------------------------------------------------------------
 // Editor
 // ---------------------------------------------------------------------------
-const svg = $('#art');
+const paper = $('#paper');
+let svg = $('#art');
+
+// Rebuild the drawing through the HTML parser (older Safari is unreliable with innerHTML on SVG elements).
+function setArt(inner) {
+  paper.innerHTML = `<svg id="art" viewBox="0 0 ${SIZE} ${SIZE}" xmlns="${NS}">${inner}</svg>`;
+  svg = paper.firstElementChild;
+}
+function svgEl(tag, attrs, parent) {
+  const el = document.createElementNS(NS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(el);
+  return el;
+}
 const SIZES = { s: 10, m: 22, l: 40 };
 const REVEAL_W = 58;
 const GRID_N = 20;
@@ -463,9 +518,9 @@ function openPicture(pic) {
   if (ed.mode === 'fill' || ed.mode === 'paint') {
     ed.art = save.art[pic.id] || (save.art[pic.id] = { f: {}, s: [] });
     ed.celebrated = !!save.done.free[pic.id];
-    svg.innerHTML = pictureMarkup(pic, {
+    setArt(pictureMarkup(pic, {
       prefix: 'ed', editor: true, fill: (i) => ed.art.f[i] || null, strokes: ed.art.s,
-    });
+    }));
   } else if (ed.mode === 'number') {
     setupNumbers(pic);
   } else {
@@ -475,7 +530,7 @@ function openPicture(pic) {
   ed.els = new Map();
   svg.querySelectorAll('.rg').forEach((g) => {
     if (ed.mode === 'magic') return;
-    ed.els.set(+g.dataset.r, { fl: g.querySelector('.fl'), sk: g.querySelector('.sk') });
+    ed.els.set(+g.getAttribute('data-r'), { fl: g.querySelector('.fl'), sk: g.querySelector('.sk') });
   });
 
   buildDock();
@@ -520,10 +575,10 @@ function buildDock() {
 function setKey(key, quiet = false) {
   ed.key = key;
   $$('#palette .swatch').forEach((s) => s.classList.toggle('on', s.dataset.key === key));
-  const sw = $(`#palette .swatch[data-key="${key}"]`);
-  $('#sizes').style.setProperty('--cur', HEX[key] || '#ff7ac6');
+  // brush size dots show the current color (or magic paint)
   $$('.size-btn i').forEach((i) => {
-    i.style.background = sw ? getComputedStyle(sw).background : '';
+    i.className = HEX[key] ? '' : `m-${key}`;
+    i.style.background = HEX[key] || '';
   });
   if (ed.mode === 'number') {
     ed.labels.forEach((el, r) => el.classList.toggle('hot', ed.pic.shapes[r].c === key));
@@ -565,53 +620,57 @@ function toLocal(e) {
     y: clamp(((e.clientY - r.top) / r.height) * SIZE, 0, SIZE),
   };
 }
-function regionAt(e) {
-  const g = e.target.closest && e.target.closest('.rg');
-  return g ? +g.dataset.r : -1;
+function regionAt(target) {
+  const g = target && target.closest ? target.closest('.rg') : null;
+  return g ? +g.getAttribute('data-r') : -1;
 }
 const round1 = (v) => Math.round(v * 10) / 10;
 
-svg.addEventListener('pointerdown', (e) => {
-  e.preventDefault();
-  sfx.unlock();
-  if (ed.pointer) return; // one finger at a time
+// Input is handled per finger: down / move / up. `e` only needs clientX and clientY,
+// so Pointer Events, touches and the mouse can all share this code.
+function inputDown(id, e, target) {
+  if (ed.pointer) return false; // one finger at a time
+  if (!$('#editor').classList.contains('active')) return false;
   const pt = toLocal(e);
   if (ed.mode === 'magic') {
-    if (ed.magic.done) return;
-    startReveal(pt, e);
-  } else if (ed.mode === 'number') {
-    numberTap(regionAt(e), pt, e);
-    return;
-  } else if (ed.tool === 'fill') {
-    const r = regionAt(e);
-    if (r >= 0) freeFill(r, pt, e);
-    return;
-  } else {
-    const r = regionAt(e);
-    if (r < 0) return;
-    startStroke(r, pt, e);
+    if (ed.magic.done) return false;
+    startReveal(id, pt, e);
+    return true;
   }
-  try { svg.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-});
+  const r = regionAt(target);
+  if (ed.mode === 'number') {
+    numberTap(r, pt, e);
+    return false;
+  }
+  if (ed.tool === 'fill') {
+    if (r >= 0) freeFill(r, pt, e);
+    return false;
+  }
+  if (r < 0) return false;
+  startStroke(id, r, pt, e);
+  return true;
+}
 
-svg.addEventListener('pointermove', (e) => {
+function inputMove(id, list) {
   const p = ed.pointer;
-  if (!p || p.id !== e.pointerId) return;
-  e.preventDefault();
-  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-  for (const ev of (events.length ? events : [e])) {
+  if (!p || p.id !== id || !list.length) return;
+  for (const ev of list) {
     const pt = toLocal(ev);
     if (p.kind === 'stroke') extendStroke(pt, ev);
     else extendReveal(pt, ev);
   }
-  if (p.kind === 'stroke') p.el.setAttribute('d', strokePath(p.s.p));
-  else p.el.setAttribute('d', strokePath(p.pts));
-  if (p.kind === 'reveal') checkReveal(toLocal(e), e);
-});
+  if (p.kind === 'stroke') {
+    p.el.setAttribute('d', strokePath(p.s.p));
+  } else {
+    p.el.setAttribute('d', strokePath(p.pts));
+    const lastEv = list[list.length - 1];
+    checkReveal(toLocal(lastEv), lastEv);
+  }
+}
 
-function endPointer(e) {
+function inputUp(id) {
   const p = ed.pointer;
-  if (!p || p.id !== e.pointerId) return;
+  if (!p || p.id !== id) return;
   ed.pointer = null;
   if (p.kind === 'stroke') {
     ed.art.s.push(p.s);
@@ -621,11 +680,58 @@ function endPointer(e) {
     checkFreeDone();
   }
 }
-svg.addEventListener('pointerup', endPointer);
-svg.addEventListener('pointercancel', endPointer);
-svg.addEventListener('lostpointercapture', endPointer);
-svg.addEventListener('contextmenu', (e) => e.preventDefault());
-svg.addEventListener('animationend', (e) => e.target.classList && e.target.classList.remove('wrong'));
+
+const noScroll = { passive: false };
+if (window.PointerEvent) {
+  paper.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    sfx.unlock();
+    if (inputDown(e.pointerId, e, e.target)) {
+      try { paper.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    }
+  }, noScroll);
+  paper.addEventListener('pointermove', (e) => {
+    if (!ed.pointer || ed.pointer.id !== e.pointerId) return;
+    e.preventDefault();
+    const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    inputMove(e.pointerId, list.length ? list : [e]);
+  }, noScroll);
+  const up = (e) => inputUp(e.pointerId);
+  paper.addEventListener('pointerup', up);
+  paper.addEventListener('pointercancel', up);
+  paper.addEventListener('lostpointercapture', up);
+} else {
+  // Older browsers (e.g. iPads on iOS 12) have touch events but no pointer events.
+  paper.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    sfx.unlock();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      inputDown(t.identifier, t, t.target);
+    }
+  }, noScroll);
+  paper.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      inputMove(t.identifier, [t]);
+    }
+  }, noScroll);
+  const end = (e) => {
+    for (let i = 0; i < e.changedTouches.length; i++) inputUp(e.changedTouches[i].identifier);
+  };
+  paper.addEventListener('touchend', end);
+  paper.addEventListener('touchcancel', end);
+  paper.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    sfx.unlock();
+    inputDown('mouse', e, e.target);
+  });
+  window.addEventListener('mousemove', (e) => inputMove('mouse', [e]));
+  window.addEventListener('mouseup', () => inputUp('mouse'));
+}
+paper.addEventListener('contextmenu', (e) => e.preventDefault());
+paper.addEventListener('animationend', (e) => e.target.classList && e.target.classList.remove('wrong'));
 
 // ---------------- Fill animation ----------------
 function animateFill(r, key, x, y, fast = false) {
@@ -682,11 +788,11 @@ function freeFill(r, pt, e) {
   checkFreeDone();
 }
 
-function startStroke(r, pt, e) {
+function startStroke(id, r, pt, e) {
   const s = { r, k: ed.key, w: SIZES[ed.size], p: [round1(pt.x), round1(pt.y)] };
   const reg = ed.els.get(r);
-  reg.sk.insertAdjacentHTML('beforeend', strokeMarkup(s));
-  ed.pointer = { id: e.pointerId, kind: 'stroke', s, el: reg.sk.lastElementChild, lx: pt.x, ly: pt.y, sound: 0 };
+  const el = svgEl('path', { d: strokePath(s.p), stroke: paint(s.k), 'stroke-width': s.w }, reg.sk);
+  ed.pointer = { id, kind: 'stroke', s, el, lx: pt.x, ly: pt.y, sound: 0 };
   sfx.scribble();
   trailFx(e.clientX, e.clientY, fxColor(ed.key));
 }
@@ -765,8 +871,8 @@ function setupNumbers(pic) {
     html += `<text class="lbl" data-r="${r}" x="${reg.x.toFixed(1)}" y="${reg.y.toFixed(1)}" font-size="${fs}">${ed.groupOf.get(r).n}</text>`;
   }
   html += '</g>';
-  svg.innerHTML = html;
-  svg.querySelectorAll('.lbl').forEach((el) => ed.labels.set(+el.dataset.r, el));
+  setArt(html);
+  svg.querySelectorAll('.lbl').forEach((el) => ed.labels.set(+el.getAttribute('data-r'), el));
 }
 
 const groupComplete = (g) => g.regions.every((r) => ed.numDone.has(r));
@@ -833,13 +939,13 @@ function finishNumbers() {
 // ---------------- Magic Reveal ----------------
 function setupMagic(pic) {
   const colored = pictureMarkup(pic, { prefix: 'mc', fill: (i) => pic.shapes[i].c });
-  svg.innerHTML =
+  setArt(
     `<defs><mask id="reveal-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="${SIZE}" height="${SIZE}">` +
     `<rect width="${SIZE}" height="${SIZE}" fill="#000"/>` +
     `<g class="ms" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="${REVEAL_W}"></g>` +
     '</mask></defs>' +
     `<g>${pictureMarkup(pic, { prefix: 'mb', plain: true })}</g>` +
-    `<g mask="url(#reveal-mask)">${colored}</g>`;
+    `<g mask="url(#reveal-mask)">${colored}</g>`);
   ed.magic = { grid: new Uint8Array(GRID_N * GRID_N), covered: 0, done: false, ms: svg.querySelector('.ms'), sound: 0 };
 }
 
@@ -862,11 +968,10 @@ function cover(x, y) {
   }
 }
 
-function startReveal(pt, e) {
+function startReveal(id, pt, e) {
   const m = ed.magic;
-  m.ms.insertAdjacentHTML('beforeend', '<path/>');
   const pts = [round1(pt.x), round1(pt.y)];
-  ed.pointer = { id: e.pointerId, kind: 'reveal', el: m.ms.lastElementChild, pts, lx: pt.x, ly: pt.y };
+  ed.pointer = { id, kind: 'reveal', el: svgEl('path', {}, m.ms), pts, lx: pt.x, ly: pt.y };
   ed.pointer.el.setAttribute('d', strokePath(pts));
   cover(pt.x, pt.y);
   sfx.shimmer();
@@ -952,13 +1057,18 @@ function clearPicture() {
   openPicture(ed.pic);
 }
 
+const IS_IOS = /iP(ad|hone|od)/.test(navigator.platform) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 async function saveImage() {
   finishAllAnims();
   try {
-    const blob = await svgToBlob(svg);
+    const cv = await svgToCanvas(svg);
     const name = `coloring-${ed.pic.id}.png`;
-    const file = new File([blob], name, { type: 'image/png' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    const blob = await canvasToBlob(cv);
+    let file = null;
+    try { file = new File([blob], name, { type: 'image/png' }); } catch (err) { /* very old browsers */ }
+    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: ed.pic.name });
         return;
@@ -966,17 +1076,24 @@ async function saveImage() {
         if (err && err.name === 'AbortError') return;
       }
     }
+    if (IS_IOS) {
+      // Older iPads can't download files: show the picture so it can be saved with a long press.
+      $('#photo-img').src = cv.toDataURL('image/png');
+      sfx.sparkle();
+      showScreen('screen-photo');
+      return;
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = name;
     document.body.appendChild(a);
     a.click();
-    a.remove();
+    document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 4000);
     sfx.sparkle();
     showBanner('Saved!', 'Your picture is in your downloads');
-  } catch {
+  } catch (err) {
     sfx.boing();
     showBanner('Oops!', 'Could not save the picture');
   }
@@ -1027,7 +1144,7 @@ document.addEventListener('click', (e) => {
       if (ed.mode === 'magic') { sfx.whoosh(); openPicture(ed.pic); } else showScreen('screen-confirm');
       break;
     case 'clear-yes': showScreen(null); clearPicture(); break;
-    case 'close': showScreen(null); break;
+    case 'close': showScreen(currentScreen === 'screen-photo' ? photoReturn : null); break;
     case 'next': showScreen(null); nextPicture(); break;
     case 'save-img': saveImage(); break;
     case 'sound':
@@ -1075,6 +1192,14 @@ window.addEventListener('appinstalled', () => {
 // ---------------------------------------------------------------------------
 installDefs();
 window.addEventListener('resize', resize);
+// iOS 12 sometimes reports the old size during the rotation itself
+window.addEventListener('orientationchange', () => setTimeout(resize, 300));
+// unlock sound on the very first touch anywhere (iOS needs it inside a tap)
+['pointerdown', 'touchstart', 'touchend', 'mousedown'].forEach((type) => {
+  window.addEventListener(type, () => sfx.unlock(), { capture: true, passive: true });
+});
+// stop pinch-zoom on older iOS, which ignores user-scalable=no
+document.addEventListener('gesturestart', (e) => e.preventDefault());
 resize();
 sfx.setMuted(save.muted);
 updateSoundButtons();

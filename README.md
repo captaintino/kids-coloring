@@ -18,7 +18,8 @@ Tap & Fill and Paint also have **magic paints**: rainbow, glitter, polka dots, c
 
 Other things you can do:
 - ↩️ Undo, and 🗑️ start a picture over.
-- 📷 Save your picture as a PNG (on phones this opens the share sheet, so you can save it to Photos).
+- 📷 Save your picture as a PNG (on phones this opens the share sheet, so you can save it to Photos;
+  on older iPads you press and hold the picture and tap *Save Image*).
 - Your coloring is saved on the device, so you can come back to it later. Finished pictures get a ⭐.
 
 ## Tech
@@ -32,6 +33,11 @@ Other things you can do:
 - All sounds are made live with the Web Audio API, so there are no audio files.
 - The [Fredoka](https://github.com/hafontia/Fredoka-One) font is included in `fonts/` (SIL Open Font License), so it works offline.
 - `sw.js` caches every file the first time the app loads.
+- Works back to iOS 12 / Safari 12 (e.g. the original iPad Air): touch-event fallback when Pointer Events
+  are missing, no newer JS/CSS syntax (`??`, `?.`, `clamp()`, flex `gap`, `inset`, `aspect-ratio`), and on
+  older iPads the 📷 button shows the picture so it can be saved with a long press.
+- Built to stay smooth on older tablets: background blobs are pre-drawn sprites, the background canvas
+  runs at 1x resolution, and the effects layer has a pixel budget and sits idle when nothing is moving.
 
 ### Adding a picture
 
