@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff6fb5"/>
+      <stop offset=".55" stop-color="#c27bff"/>
+      <stop offset="1" stop-color="#6fc8ff"/>
+    </linearGradient>
+    <linearGradient id="pal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fffdf5"/>
+      <stop offset="1" stop-color="#ffe2b8"/>
+    </linearGradient>
+    <radialGradient id="gl" cx=".35" cy=".3" r=".7">
+      <stop offset="0" stop-color="#fff" stop-opacity=".85"/>
+      <stop offset=".35" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <g fill="#fff" opacity=".75">
+    <circle cx="80" cy="96" r="7"/><circle cx="440" cy="80" r="5"/><circle cx="450" cy="420" r="6"/><circle cx="66" cy="430" r="5"/>
+  </g>
+  <g transform="translate(256 270) rotate(-12)">
+    <path d="M-170 10C-170 -110 -60 -165 40 -158C150 -150 196 -70 180 10C168 70 110 64 80 90C50 116 90 160 30 168C-90 184 -170 120 -170 10Z"
+      fill="url(#pal)" stroke="#2d2442" stroke-width="12" stroke-linejoin="round"/>
+    <circle cx="75" cy="38" r="30" fill="#c27bff" stroke="#2d2442" stroke-width="10"/>
+    <g stroke="#2d2442" stroke-width="10">
+      <circle cx="-100" cy="-20" r="34" fill="#ff4d5e"/>
+      <circle cx="-40" cy="-92" r="34" fill="#ffd93b"/>
+      <circle cx="50" cy="-100" r="34" fill="#5cd65c"/>
+      <circle cx="118" cy="-40" r="32" fill="#3d9bff"/>
+      <circle cx="-84" cy="72" r="32" fill="#ff7ac6"/>
+    </g>
+    <g fill="url(#gl)">
+      <circle cx="-100" cy="-20" r="34"/><circle cx="-40" cy="-92" r="34"/><circle cx="50" cy="-100" r="34"/>
+      <circle cx="118" cy="-40" r="32"/><circle cx="-84" cy="72" r="32"/>
+    </g>
+  </g>
+  <g transform="translate(330 330) rotate(40)">
+    <rect x="-16" y="-10" width="32" height="150" rx="14" fill="#ff9a2e" stroke="#2d2442" stroke-width="10"/>
+    <rect x="-20" y="-40" width="40" height="40" rx="6" fill="#b3b9c6" stroke="#2d2442" stroke-width="10"/>
+    <path d="M-20 -40C-24 -80 -6 -110 0 -124C6 -110 24 -80 20 -40Z" fill="#ff4d5e" stroke="#2d2442" stroke-width="10" stroke-linejoin="round"/>
+  </g>
+</svg>

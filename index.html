@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Color Splash Party</title>
+  <meta name="description" content="Color lots of cute pictures! Tap to fill, paint, color by number or rub to reveal magic colors. A coloring game for kids that works offline.">
+  <meta name="theme-color" content="#ff6fb5">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Coloring">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preload" href="fonts/fredoka-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="bg" aria-hidden="true"></canvas>
+
+  <!-- Title screen -->
+  <section id="screen-title" class="screen active">
+    <div class="panel title-panel">
+      <h1 class="logo"><span>Color</span><span>Splash</span><span>Party!</span></h1>
+      <p class="tagline">How do you want to color?</p>
+      <div class="btn-col">
+        <button class="btn btn-pink" data-action="mode" data-mode="fill">
+          <span class="btn-icon">🪣</span> Tap &amp; Fill
+        </button>
+        <button class="btn btn-blue" data-action="mode" data-mode="paint">
+          <span class="btn-icon">🖌️</span> Paint
+        </button>
+        <button class="btn btn-green" data-action="mode" data-mode="number">
+          <span class="btn-icon">🔢</span> Color by Number
+        </button>
+        <button class="btn btn-purple" data-action="mode" data-mode="magic">
+          <span class="btn-icon">✨</span> Magic Reveal
+        </button>
+        <button class="btn btn-orange btn-small hidden" id="install-btn" data-action="install">
+          <span class="btn-icon">📲</span> Install
+        </button>
+      </div>
+      <div class="best-line" id="title-best"></div>
+    </div>
+    <button class="round-btn sound-btn" data-action="sound" aria-label="Toggle sound">🔊</button>
+  </section>
+
+  <!-- Picture picker -->
+  <section id="screen-gallery" class="screen">
+    <div class="panel gallery-panel">
+      <div class="gallery-head">
+        <button class="round-btn" data-action="home" aria-label="Home">🏠</button>
+        <h2 class="heading">Pick a Picture</h2>
+        <div class="round-spacer"></div>
+      </div>
+      <div class="mode-chip" id="mode-chip"></div>
+      <div class="tabs" id="tabs"></div>
+      <div class="gallery-scroll">
+        <div class="pic-grid" id="pic-grid"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Coloring screen -->
+  <section id="editor" class="editor" aria-label="Coloring page">
+    <div class="topbar">
+      <button class="round-btn" data-action="gallery" aria-label="Back to pictures">⬅️</button>
+      <button class="round-btn" id="undo-btn" data-action="undo" aria-label="Undo">↩️</button>
+      <div class="name-pill" id="pic-name">Kitty</div>
+      <button class="round-btn" id="clear-btn" data-action="clear" aria-label="Start over">🗑️</button>
+      <button class="round-btn" data-action="save-img" aria-label="Save picture">📷</button>
+    </div>
+    <div class="stage" id="stage">
+      <div class="paper" id="paper">
+        <svg id="art" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+    </div>
+    <div class="dock" id="dock">
+      <div class="tools" id="tools">
+        <div class="seg">
+          <button class="seg-btn" data-tool="fill" aria-label="Fill bucket">🪣</button>
+          <button class="seg-btn" data-tool="brush" aria-label="Paint brush">🖌️</button>
+        </div>
+        <div class="sizes" id="sizes">
+          <button class="size-btn" data-size="s" aria-label="Thin brush"><i></i></button>
+          <button class="size-btn" data-size="m" aria-label="Medium brush"><i></i></button>
+          <button class="size-btn" data-size="l" aria-label="Fat brush"><i></i></button>
+        </div>
+      </div>
+      <div class="dock-hint hidden" id="dock-hint"></div>
+      <div class="palette" id="palette"></div>
+    </div>
+  </section>
+
+  <canvas id="fx" aria-hidden="true"></canvas>
+
+  <!-- Banner -->
+  <div id="banner" class="banner" aria-live="polite">
+    <div class="banner-title" id="banner-title">Beautiful!</div>
+    <div class="banner-sub" id="banner-sub"></div>
+  </div>
+
+  <!-- Start over? -->
+  <section id="screen-confirm" class="screen dim">
+    <div class="panel card">
+      <h2 class="heading">Start over?</h2>
+      <p class="card-text">This wipes the picture clean.</p>
+      <div class="btn-col">
+        <button class="btn btn-orange" data-action="clear-yes"><span class="btn-icon">🧽</span> Yes, clean it</button>
+        <button class="btn btn-green btn-small" data-action="close"><span class="btn-icon">🎨</span> Keep coloring</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Finished! -->
+  <section id="screen-done" class="screen dim">
+    <div class="panel card">
+      <h2 class="heading" id="done-title">You did it!</h2>
+      <div class="result-stars"><span class="rstar">★</span><span class="rstar">★</span><span class="rstar">★</span></div>
+      <div class="done-thumb" id="done-thumb"></div>
+      <div class="btn-col">
+        <button class="btn btn-green" data-action="next"><span class="btn-icon">➡️</span> Next</button>
+        <button class="btn btn-blue btn-small" data-action="save-img"><span class="btn-icon">📷</span> Save</button>
+        <button class="btn btn-purple btn-small" data-action="gallery"><span class="btn-icon">🖼️</span> Pictures</button>
+      </div>
+    </div>
+  </section>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
